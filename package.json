@@ -1,6 +1,6 @@
 {
   "name": "unity-save-editor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Drag-and-drop editor for Unity .dat save files",
   "main": "main.js",
   "scripts": {
