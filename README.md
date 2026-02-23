@@ -18,6 +18,8 @@ A drag-and-drop Mac app for editing Unity `.dat` save files. Supports games like
 2. Open the `.dmg` and drag the app to your Applications folder
 3. Launch Unity Save Editor
 
+> **macOS Gatekeeper notice:** Since the app isn't signed with an Apple Developer certificate, macOS will show a warning saying it "can't be opened because Apple cannot check it for malicious software." To open it, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**. You only need to do this once.
+
 > Releases are built automatically — every push to `main` triggers a new build and attaches the DMG to a GitHub Release.
 
 ### From Source
@@ -33,21 +35,41 @@ npm start
 npm run dist
 ```
 
-## Usage
+## Getting Started
 
-1. **Find your save file** — Unity games on Mac typically save to:
-   - `~/Library/Application Support/<Developer>/<Game>/`
-   - Example: `~/Library/Application Support/Cold Hours/Idle Cave Miner/IdleMinerSave.dat`
+### Loading a Save File
 
-2. **Back up your save** — Always make a copy before editing!
+There are two ways to open a save file:
 
-3. **Drag the `.dat` file** onto the app window
+- **Drag and drop** — drag a `.dat` file directly onto the app window
+- **Click to browse** — click the drop area to open a file picker (it starts in `~/Library/Application Support` where most game saves live, and hidden folders are visible so you can find `Library`)
 
-4. **Edit values** — Change individual items or use "Set All Items To" for bulk edits
+Unity games on Mac typically save to `~/Library/Application Support/<Developer>/<Game>/`. For example, Idle Cave Miner saves to `~/Library/Application Support/Cold Hours/Idle Cave Miner/IdleMinerSave.dat`.
 
-5. **Save** — Click "Save Modified File" and replace your original save (game must be closed)
+Once you've opened a file, it will appear under **Recent Files** on the home screen so you can quickly reopen it next time. You can remove individual entries or clear the whole list.
 
-6. **Launch the game** — Your modified values should be loaded
+### Editing Values
+
+The editor has three tabs:
+
+- **Items** — your inventory items. Each row shows the item's internal ID, an optional custom name you can set, and the current value. Type a new value in the "New Value" column to change it. Use the **"Set all items to"** toolbar at the top to bulk-set every item at once (e.g. enter `999000000` and click "Apply to All").
+
+- **Currencies** — in-game currencies like coins, prestige points, and premium currency. Some currencies use very large numbers internally (mantissa + exponent pairs), but you don't need to worry about that — just type the number you want (like `999000000` or `1e50` for scientific notation) and the app handles the conversion.
+
+- **Fields** — other game values like floor levels, tower gems, and stats. These are stored as whole numbers (0 to 4,294,967,295).
+
+A red dot appears next to any value you've changed. Invalid inputs are highlighted in red.
+
+### Saving
+
+Click **"Save Modified File"** to save your changes. The app will open a save dialog defaulting to the original file location and name. If you're overwriting an existing file, a `.bak` backup is automatically created first.
+
+> **Important:** Make sure the game is fully closed before saving, otherwise it may overwrite your changes when it exits.
+
+## Supported Operating Systems
+
+- **macOS** (Apple Silicon and Intel) — the DMG release is a universal binary that runs natively on both architectures
+- Windows and Linux are not currently supported, but you can run from source on any platform that supports Electron
 
 ## Supported Save Format
 
