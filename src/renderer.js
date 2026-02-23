@@ -20,7 +20,61 @@ async function init() {
   setupDragDrop();
   setupTabs();
   setupButtons();
+  setupUpdateChecker();
   await loadRecentFiles();
+}
+
+// Update checker
+async function setupUpdateChecker() {
+  // Show current version
+  const version = await window.api.getVersion();
+  document.getElementById('version-label').textContent = `v${version}`;
+
+  document.getElementById('btn-check-update').addEventListener('click', checkForUpdates);
+}
+
+async function checkForUpdates() {
+  const btn = document.getElementById('btn-check-update');
+  btn.textContent = 'Checking...';
+  btn.disabled = true;
+
+  try {
+    const result = await window.api.checkForUpdates();
+
+    if (result.error) {
+      showToast('Could not check for updates: ' + result.error, true);
+      btn.textContent = 'Check for Updates';
+      btn.disabled = false;
+      return;
+    }
+
+    if (result.hasUpdate) {
+      btn.textContent = `Update to v${result.latestVersion}`;
+      btn.classList.add('has-update');
+      btn.disabled = false;
+
+      // Change click to open download
+      btn.onclick = () => {
+        const url = result.downloadUrl || result.releaseUrl;
+        if (url) window.api.openExternal(url);
+      };
+
+      showToast(`New version v${result.latestVersion} available!`);
+    } else {
+      btn.textContent = 'Up to date';
+      btn.disabled = true;
+      showToast('You\'re on the latest version');
+      // Re-enable after 5 seconds
+      setTimeout(() => {
+        btn.textContent = 'Check for Updates';
+        btn.disabled = false;
+      }, 5000);
+    }
+  } catch (err) {
+    showToast('Update check failed: ' + err.message, true);
+    btn.textContent = 'Check for Updates';
+    btn.disabled = false;
+  }
 }
 
 // Load and display recent files on the drop screen

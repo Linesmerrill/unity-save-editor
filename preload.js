@@ -9,5 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   loadRecents: () => ipcRenderer.invoke('load-recents'),
   removeRecent: (filePath) => ipcRenderer.invoke('remove-recent', filePath),
   clearRecents: () => ipcRenderer.invoke('clear-recents'),
-  openFileDialog: () => ipcRenderer.invoke('open-file-dialog')
+  openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

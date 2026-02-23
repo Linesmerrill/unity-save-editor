@@ -1,8 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const { UnitySaveParser } = require('./src/parser.js');
 const { TextSaveParser } = require('./src/text-parser.js');
+
+const GITHUB_REPO = 'linesmerrill/unity-save-editor';
 
 let mainWindow;
 let currentFileBuffer = null;
@@ -352,3 +355,72 @@ ipcMain.handle('save-names', async (event, names) => {
     return { success: false, error: err.message };
   }
 });
+
+// Get current app version
+ipcMain.handle('get-version', async () => {
+  return require('./package.json').version;
+});
+
+// Check for updates via GitHub Releases API
+ipcMain.handle('check-for-updates', async () => {
+  const currentVersion = require('./package.json').version;
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: `/repos/${GITHUB_REPO}/releases/latest`,
+      headers: { 'User-Agent': 'unity-save-editor' }
+    };
+
+    https.get(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const release = JSON.parse(data);
+          const latestVersion = (release.tag_name || '').replace(/^v/, '');
+          const dmgAsset = (release.assets || []).find(a => a.name.endsWith('.dmg'));
+
+          if (!latestVersion) {
+            resolve({ hasUpdate: false, error: 'Could not determine latest version' });
+            return;
+          }
+
+          const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+
+          resolve({
+            hasUpdate,
+            currentVersion,
+            latestVersion,
+            downloadUrl: dmgAsset ? dmgAsset.browser_download_url : null,
+            releaseUrl: release.html_url,
+            releaseName: release.name,
+            releaseNotes: (release.body || '').slice(0, 500)
+          });
+        } catch (err) {
+          resolve({ hasUpdate: false, error: 'Failed to parse update info: ' + err.message });
+        }
+      });
+    }).on('error', (err) => {
+      resolve({ hasUpdate: false, error: 'Network error: ' + err.message });
+    });
+  });
+});
+
+// Open URL in default browser
+ipcMain.handle('open-external', async (event, url) => {
+  shell.openExternal(url);
+});
+
+// Compare semver strings: returns 1 if a > b, -1 if a < b, 0 if equal
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}

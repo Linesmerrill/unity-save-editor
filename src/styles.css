@@ -230,6 +230,52 @@ body {
   color: var(--accent);
 }
 
+/* Version bar */
+.version-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+#version-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Menlo', monospace;
+}
+
+.update-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.update-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.update-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.update-btn.has-update {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.update-btn.has-update:hover {
+  background: var(--accent-hover);
+}
+
 /* Editor */
 .editor {
   flex: 1;
