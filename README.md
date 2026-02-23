@@ -14,13 +14,15 @@ A drag-and-drop Mac app for editing Unity `.dat` save files. Supports games like
 ## Installation
 
 ### From Release (easiest)
-1. Download the latest `.dmg` from [Releases](../../releases)
+1. Download the latest `.dmg` from [Releases](https://github.com/linesmerrill/unity-save-editor/releases)
 2. Open the `.dmg` and drag the app to your Applications folder
 3. Launch Unity Save Editor
 
+> Releases are built automatically — every push to `main` triggers a new build and attaches the DMG to a GitHub Release.
+
 ### From Source
 ```bash
-git clone https://github.com/YOUR_USERNAME/unity-save-editor.git
+git clone https://github.com/linesmerrill/unity-save-editor.git
 cd unity-save-editor
 npm install
 npm start

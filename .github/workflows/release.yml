@@ -1,0 +1,130 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+
+# Prevent concurrent builds
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Auto-bump patch version if tag exists
+        if: steps.check_tag.outputs.exists == 'true'
+        id: bump
+        run: |
+          CURRENT=${{ steps.version.outputs.version }}
+          # Bump patch version
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          # Update package.json
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '$NEW_VERSION';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "bumped=true" >> $GITHUB_OUTPUT
+
+      - name: Set final version
+        id: final
+        run: |
+          if [ "${{ steps.bump.outputs.bumped }}" == "true" ]; then
+            echo "version=${{ steps.bump.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ steps.bump.outputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ steps.version.outputs.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build DMG
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find DMG file
+        id: dmg
+        run: |
+          DMG_PATH=$(find dist -name "*.dmg" -type f | head -1)
+          DMG_NAME=$(basename "$DMG_PATH")
+          echo "path=$DMG_PATH" >> $GITHUB_OUTPUT
+          echo "name=$DMG_NAME" >> $GITHUB_OUTPUT
+          echo "Found DMG: $DMG_PATH"
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Get commits since last tag (or all commits if no tags)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --oneline --no-merges | head -20)
+          else
+            COMMITS=$(git log --oneline --no-merges "$LAST_TAG"..HEAD | head -20)
+          fi
+
+          # Write release notes to file
+          cat > release_notes.md << 'NOTES_EOF'
+          ## Unity Save Editor ${{ steps.final.outputs.tag }}
+
+          ### Installation
+          1. Download the `.dmg` file below
+          2. Open it and drag **Unity Save Editor** to your Applications folder
+          3. Launch the app and drop a `.dat` save file to get started
+
+          ### Changes
+          NOTES_EOF
+
+          echo "$COMMITS" | while read -r line; do
+            echo "- $line" >> release_notes.md
+          done
+
+      - name: Create Release and Upload DMG
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.final.outputs.tag }}
+          name: Unity Save Editor ${{ steps.final.outputs.tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: ${{ steps.dmg.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

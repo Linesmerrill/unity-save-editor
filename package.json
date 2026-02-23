@@ -13,7 +13,13 @@
     "productName": "Unity Save Editor",
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg"]
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ],
+      "artifactName": "${productName}-${version}-mac.${ext}"
     },
     "files": [
       "main.js",
@@ -22,7 +28,11 @@
     ]
   },
   "keywords": ["unity", "save", "editor", "game"],
-  "author": "",
+  "author": "linesmerrill",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/linesmerrill/unity-save-editor.git"
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^40.6.0",
