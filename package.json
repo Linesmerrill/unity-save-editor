@@ -1,6 +1,6 @@
 {
   "name": "unity-save-editor",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Drag-and-drop editor for Unity .dat save files",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,9 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         }
       ],
       "artifactName": "${productName}-${version}-mac.${ext}"
@@ -27,7 +29,12 @@
       "src/**/*"
     ]
   },
-  "keywords": ["unity", "save", "editor", "game"],
+  "keywords": [
+    "unity",
+    "save",
+    "editor",
+    "game"
+  ],
   "author": "linesmerrill",
   "repository": {
     "type": "git",
