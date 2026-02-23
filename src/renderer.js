@@ -88,6 +88,31 @@ async function loadRecentFiles() {
   recentList.appendChild(clearAllBtn);
 }
 
+// Check if parsed data has anything useful
+function hasData(data) {
+  return (data.items && data.items.length > 0) ||
+         (data.currencies && data.currencies.length > 0) ||
+         (data.fields && data.fields.length > 0);
+}
+
+// Show editor with parsed data
+function showEditor() {
+  fileName.textContent = currentFile.name;
+  fileSize.textContent = formatBytes(currentFile.size);
+  document.getElementById('items-count').textContent = parsedData.items.length;
+  document.getElementById('currencies-count').textContent = parsedData.currencies.length;
+  document.getElementById('fields-count').textContent = parsedData.fields.length;
+
+  renderItems();
+  renderCurrencies();
+  renderFields();
+
+  dropZone.classList.add('hidden');
+  editor.classList.remove('hidden');
+
+  showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies, ${parsedData.fields.length} fields`);
+}
+
 // Load a file directly from a path (used by recent files)
 async function loadFileFromPath(filePath) {
   try {
@@ -102,20 +127,12 @@ async function loadFileFromPath(filePath) {
     parsedData = result.data;
     modifications.clear();
 
-    fileName.textContent = currentFile.name;
-    fileSize.textContent = formatBytes(currentFile.size);
-    document.getElementById('items-count').textContent = parsedData.items.length;
-    document.getElementById('currencies-count').textContent = parsedData.currencies.length;
-    document.getElementById('fields-count').textContent = parsedData.fields.length;
+    if (!hasData(parsedData)) {
+      showToast('Unsupported save format — no items, currencies, or fields could be parsed from this file. Currently supports Idle Cave Miner (binary) and Necesse (text) save files.', true);
+      return;
+    }
 
-    renderItems();
-    renderCurrencies();
-    renderFields();
-
-    dropZone.classList.add('hidden');
-    editor.classList.remove('hidden');
-
-    showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies`);
+    showEditor();
   } catch (err) {
     showToast('Error: ' + err.message, true);
     console.error(err);
@@ -179,20 +196,12 @@ function setupDragDrop() {
       parsedData = result.data;
       modifications.clear();
 
-      fileName.textContent = currentFile.name;
-      fileSize.textContent = formatBytes(currentFile.size);
-      document.getElementById('items-count').textContent = parsedData.items.length;
-      document.getElementById('currencies-count').textContent = parsedData.currencies.length;
-      document.getElementById('fields-count').textContent = parsedData.fields.length;
+      if (!hasData(parsedData)) {
+        showToast('Unsupported save format — no items, currencies, or fields could be parsed from this file. Currently supports Idle Cave Miner (binary) and Necesse (text) save files.', true);
+        return;
+      }
 
-      renderItems();
-      renderCurrencies();
-      renderFields();
-
-      dropZone.classList.add('hidden');
-      editor.classList.remove('hidden');
-
-      showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies`);
+      showEditor();
     } catch (err) {
       showToast('Error: ' + err.message, true);
       console.error(err);
@@ -234,77 +243,151 @@ function setupButtons() {
 // Render items table
 function renderItems() {
   itemsBody.innerHTML = '';
+  const isText = parsedData.format === 'text';
 
-  for (const item of parsedData.items) {
-    const tr = document.createElement('tr');
-
-    const customName = customNames[item.id] || '';
-    const valueStr = formatNumber(item.value);
-    const isLarge = item.value >= 1000000;
-
-    tr.innerHTML = `
-      <td><code>${escapeHtml(item.id)}</code></td>
-      <td>
-        <input type="text" class="name-input ${customName ? 'has-name' : ''}"
-               data-item-id="${escapeHtml(item.id)}"
-               value="${escapeHtml(customName)}"
-               placeholder="Click to name...">
-      </td>
-      <td>
-        <span class="value-display ${isLarge ? 'large' : ''}">${valueStr}</span>
-      </td>
-      <td>
-        <input type="number" class="new-value-input"
-               data-offset="${item.offset}"
-               data-type="item"
-               placeholder="${valueStr}">
-        <span class="modified-indicator" id="mod-${item.offset}"></span>
-      </td>
+  // Update table headers for text format
+  const thead = document.querySelector('#items-table thead tr');
+  if (isText) {
+    thead.innerHTML = `
+      <th class="col-section">Section</th>
+      <th class="col-id">Item ID</th>
+      <th class="col-value">Amount</th>
+      <th class="col-extra">Info</th>
+      <th class="col-new">New Amount</th>
     `;
+  } else {
+    thead.innerHTML = `
+      <th class="col-id">Item ID</th>
+      <th class="col-name">Custom Name</th>
+      <th class="col-value">Current Value</th>
+      <th class="col-new">New Value</th>
+    `;
+  }
 
-    const nameInput = tr.querySelector('.name-input');
-    nameInput.addEventListener('change', async (e) => {
-      const id = e.target.dataset.itemId;
-      const name = e.target.value.trim();
-      if (name) {
-        customNames[id] = name;
-        e.target.classList.add('has-name');
-      } else {
-        delete customNames[id];
-        e.target.classList.remove('has-name');
-      }
-      await window.api.saveNames(customNames);
-    });
+  for (let idx = 0; idx < parsedData.items.length; idx++) {
+    const item = parsedData.items[idx];
+    const tr = document.createElement('tr');
+    const modKey = isText ? `text-${idx}` : item.offset;
 
-    const valueInput = tr.querySelector('.new-value-input');
-    valueInput.addEventListener('input', (e) => {
-      const offset = parseInt(e.target.dataset.offset);
-      const indicator = document.getElementById(`mod-${offset}`);
-      const rawVal = e.target.value.trim();
+    if (isText) {
+      // Text-based format (Necesse-style)
+      const enchStr = item.enchantment ? `<span class="enchantment">${escapeHtml(item.enchantment)}</span>` : '';
+      const lockStr = item.locked ? '<span class="locked-badge">Locked</span>' : '';
 
-      if (!rawVal) {
-        modifications.delete(offset);
-        indicator.classList.remove('visible');
+      tr.innerHTML = `
+        <td><code>${escapeHtml(item.section)}</code></td>
+        <td><code>${escapeHtml(item.id)}</code></td>
+        <td><span class="value-display">${item.amount}</span></td>
+        <td>${enchStr} ${lockStr}</td>
+        <td>
+          <input type="number" class="new-value-input" min="1"
+                 data-index="${idx}"
+                 data-type="text-item"
+                 placeholder="${item.amount}">
+          <span class="modified-indicator" id="mod-${modKey}"></span>
+        </td>
+      `;
+
+      const valueInput = tr.querySelector('.new-value-input');
+      valueInput.addEventListener('input', (e) => {
+        const key = `text-${e.target.dataset.index}`;
+        const indicator = document.getElementById(`mod-${key}`);
+        const rawVal = e.target.value.trim();
+
+        if (!rawVal) {
+          modifications.delete(key);
+          indicator.classList.remove('visible');
+          e.target.classList.remove('input-error');
+          return;
+        }
+
+        const parsed = parseInt(rawVal);
+        if (isNaN(parsed) || parsed < 0) {
+          e.target.classList.add('input-error');
+          indicator.classList.remove('visible');
+          return;
+        }
+
         e.target.classList.remove('input-error');
-        return;
-      }
-
-      const parsed = parseFloat(rawVal);
-      if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) {
-        e.target.classList.add('input-error');
-        indicator.classList.remove('visible');
-        return;
-      }
-
-      e.target.classList.remove('input-error');
-      modifications.set(offset, {
-        offset: offset,
-        newValue: parsed,
-        section: 'Items',
-        type: 'double'
+        modifications.set(key, {
+          fieldType: 'item-amount',
+          section: item.section,
+          slot: item.slot,
+          newValue: parsed,
+          type: 'text'
+        });
+        indicator.classList.add('visible');
       });
-      indicator.classList.add('visible');
-    });
+    } else {
+      // Binary format (Unity-style)
+      const customName = customNames[item.id] || '';
+      const valueStr = formatNumber(item.value);
+      const isLarge = item.value >= 1000000;
+
+      tr.innerHTML = `
+        <td><code>${escapeHtml(item.id)}</code></td>
+        <td>
+          <input type="text" class="name-input ${customName ? 'has-name' : ''}"
+                 data-item-id="${escapeHtml(item.id)}"
+                 value="${escapeHtml(customName)}"
+                 placeholder="Click to name...">
+        </td>
+        <td>
+          <span class="value-display ${isLarge ? 'large' : ''}">${valueStr}</span>
+        </td>
+        <td>
+          <input type="number" class="new-value-input"
+                 data-offset="${item.offset}"
+                 data-type="item"
+                 placeholder="${valueStr}">
+          <span class="modified-indicator" id="mod-${modKey}"></span>
+        </td>
+      `;
+
+      const nameInput = tr.querySelector('.name-input');
+      nameInput.addEventListener('change', async (e) => {
+        const id = e.target.dataset.itemId;
+        const name = e.target.value.trim();
+        if (name) {
+          customNames[id] = name;
+          e.target.classList.add('has-name');
+        } else {
+          delete customNames[id];
+          e.target.classList.remove('has-name');
+        }
+        await window.api.saveNames(customNames);
+      });
+
+      const valueInput = tr.querySelector('.new-value-input');
+      valueInput.addEventListener('input', (e) => {
+        const offset = parseInt(e.target.dataset.offset);
+        const indicator = document.getElementById(`mod-${offset}`);
+        const rawVal = e.target.value.trim();
+
+        if (!rawVal) {
+          modifications.delete(offset);
+          indicator.classList.remove('visible');
+          e.target.classList.remove('input-error');
+          return;
+        }
+
+        const parsed = parseFloat(rawVal);
+        if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) {
+          e.target.classList.add('input-error');
+          indicator.classList.remove('visible');
+          return;
+        }
+
+        e.target.classList.remove('input-error');
+        modifications.set(offset, {
+          offset: offset,
+          newValue: parsed,
+          section: 'Items',
+          type: 'double'
+        });
+        indicator.classList.add('visible');
+      });
+    }
 
     itemsBody.appendChild(tr);
   }
@@ -403,49 +486,133 @@ function renderCurrencies() {
 // Render fields table
 function renderFields() {
   fieldsBody.innerHTML = '';
+  const isText = parsedData.format === 'text';
 
-  for (const field of parsedData.fields) {
-    const tr = document.createElement('tr');
-
-    tr.innerHTML = `
-      <td>${escapeHtml(field.section)}</td>
-      <td>${escapeHtml(field.world)}</td>
-      <td><span class="value-display">${field.value}</span></td>
-      <td>
-        <input type="number" class="new-value-input"
-               data-offset="${field.offset}"
-               data-type="uint32"
-               placeholder="${field.value}">
-      </td>
+  // Update headers for text format
+  const thead = document.querySelector('#fields-table thead tr');
+  if (isText) {
+    thead.innerHTML = `
+      <th>Category</th>
+      <th>Field</th>
+      <th>Current Value</th>
+      <th>New Value</th>
     `;
+  } else {
+    thead.innerHTML = `
+      <th>Section</th>
+      <th>World</th>
+      <th>Current Value</th>
+      <th>New Value</th>
+    `;
+  }
 
-    const valueInput = tr.querySelector('.new-value-input');
-    valueInput.addEventListener('input', (e) => {
-      const offset = parseInt(e.target.dataset.offset);
-      const rawVal = e.target.value.trim();
+  for (let idx = 0; idx < parsedData.fields.length; idx++) {
+    const field = parsedData.fields[idx];
+    const tr = document.createElement('tr');
+    const modKey = isText ? `field-${idx}` : field.offset;
 
-      if (!rawVal) {
-        modifications.delete(offset);
+    if (isText) {
+      const isEditable = field.type !== 'string';
+
+      tr.innerHTML = `
+        <td>${escapeHtml(field.section)}</td>
+        <td><code>${escapeHtml(field.id)}</code></td>
+        <td><span class="value-display">${escapeHtml(String(field.value))}</span></td>
+        <td>
+          ${isEditable ? `
+            <input type="${field.type === 'boolean' ? 'text' : 'number'}" class="new-value-input"
+                   data-index="${idx}"
+                   data-field-id="${escapeHtml(field.id)}"
+                   data-field-type="${field.type}"
+                   data-type="text-field"
+                   placeholder="${field.value}"
+                   ${field.type === 'boolean' ? 'list="bool-options"' : ''}>
+          ` : `<span class="text-muted">read-only</span>`}
+        </td>
+      `;
+
+      if (isEditable) {
+        const valueInput = tr.querySelector('.new-value-input');
+        valueInput.addEventListener('input', (e) => {
+          const key = `field-${e.target.dataset.index}`;
+          const rawVal = e.target.value.trim();
+
+          if (!rawVal) {
+            modifications.delete(key);
+            e.target.classList.remove('input-error');
+            return;
+          }
+
+          let newValue;
+          const ft = e.target.dataset.fieldType;
+          if (ft === 'boolean') {
+            if (rawVal !== 'true' && rawVal !== 'false') {
+              e.target.classList.add('input-error');
+              return;
+            }
+            newValue = rawVal;
+          } else if (ft === 'float') {
+            newValue = parseFloat(rawVal);
+            if (isNaN(newValue)) { e.target.classList.add('input-error'); return; }
+          } else {
+            newValue = parseInt(rawVal);
+            if (isNaN(newValue)) { e.target.classList.add('input-error'); return; }
+          }
+
+          e.target.classList.remove('input-error');
+          const fieldId = e.target.dataset.fieldId;
+          const section = field.section;
+
+          modifications.set(key, {
+            fieldType: section === 'Stats' ? 'stat-field' : 'player-field',
+            id: fieldId,
+            newValue: newValue,
+            type: 'text'
+          });
+        });
+      }
+    } else {
+      // Binary format
+      tr.innerHTML = `
+        <td>${escapeHtml(field.section)}</td>
+        <td>${escapeHtml(field.world)}</td>
+        <td><span class="value-display">${field.value}</span></td>
+        <td>
+          <input type="number" class="new-value-input"
+                 data-offset="${field.offset}"
+                 data-type="uint32"
+                 placeholder="${field.value}">
+        </td>
+      `;
+
+      const valueInput = tr.querySelector('.new-value-input');
+      valueInput.addEventListener('input', (e) => {
+        const offset = parseInt(e.target.dataset.offset);
+        const rawVal = e.target.value.trim();
+
+        if (!rawVal) {
+          modifications.delete(offset);
+          e.target.classList.remove('input-error');
+          return;
+        }
+
+        const parsed = parseInt(rawVal);
+        const validation = validateForType(parsed, 'uint32');
+        if (!validation.valid) {
+          e.target.classList.add('input-error');
+          e.target.title = validation.error;
+          return;
+        }
+
         e.target.classList.remove('input-error');
-        return;
-      }
-
-      const parsed = parseInt(rawVal);
-      const validation = validateForType(parsed, 'uint32');
-      if (!validation.valid) {
-        e.target.classList.add('input-error');
-        e.target.title = validation.error;
-        return;
-      }
-
-      e.target.classList.remove('input-error');
-      e.target.title = '';
-      modifications.set(offset, {
-        offset: offset,
-        newValue: validation.value,
-        type: 'uint32'
+        e.target.title = '';
+        modifications.set(offset, {
+          offset: offset,
+          newValue: validation.value,
+          type: 'uint32'
+        });
       });
-    });
+    }
 
     fieldsBody.appendChild(tr);
   }

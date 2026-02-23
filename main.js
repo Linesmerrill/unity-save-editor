@@ -2,12 +2,42 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { UnitySaveParser } = require('./src/parser.js');
+const { TextSaveParser } = require('./src/text-parser.js');
 
 let mainWindow;
 let currentFileBuffer = null;
 let currentFilePath = null;
 let currentFileName = null;
 let currentItemCount = 0;
+let currentFormat = null; // 'binary' or 'text'
+let lastBrowsedDir = null; // remember where user last navigated
+
+// Detect whether a buffer is a text-based or binary save file
+function detectFormat(buffer) {
+  // Text-based files start with readable ASCII like "CHARACTER = {"
+  // Binary Unity files contain null bytes and binary markers early on
+  const head = buffer.slice(0, 200);
+  const nullCount = [...head].filter(b => b === 0).length;
+  // If there are null bytes in the first 200 bytes, it's binary
+  if (nullCount > 2) return 'binary';
+  // Check if it looks like key = value text
+  const text = head.toString('utf8');
+  if (/^\w+\s*=\s*\{/.test(text.trim())) return 'text';
+  // Default to binary
+  return 'binary';
+}
+
+function parseBuffer(buffer) {
+  const format = detectFormat(buffer);
+  currentFormat = format;
+  if (format === 'text') {
+    const parser = new TextSaveParser(buffer);
+    return parser.parse();
+  } else {
+    const parser = new UnitySaveParser(buffer);
+    return parser.parse();
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -28,7 +58,10 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  loadSettings();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   app.quit();
@@ -39,6 +72,33 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// Settings helpers — persist last browsed directory across sessions
+function getSettingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadSettings() {
+  try {
+    const p = getSettingsPath();
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      lastBrowsedDir = data.lastBrowsedDir || null;
+    }
+  } catch (err) {
+    console.error('Error loading settings:', err);
+  }
+}
+
+function saveSettings() {
+  try {
+    fs.writeFileSync(getSettingsPath(), JSON.stringify({
+      lastBrowsedDir: lastBrowsedDir
+    }, null, 2));
+  } catch (err) {
+    console.error('Error saving settings:', err);
+  }
+}
 
 // Recent files helpers
 function getRecentsPath() {
@@ -106,11 +166,17 @@ ipcMain.handle('clear-recents', async () => {
   return { success: true };
 });
 
-// Open file dialog — start in ~/Library/Application Support where most game saves live
+// Open file dialog — remembers last browsed directory
 ipcMain.handle('open-file-dialog', async () => {
-  // Default to Application Support (where Unity/Steam saves typically are)
-  const appSupport = path.join(app.getPath('home'), 'Library', 'Application Support');
-  const defaultDir = fs.existsSync(appSupport) ? appSupport : app.getPath('home');
+  // Priority: last browsed dir > current file's dir > Application Support > home
+  let defaultDir = lastBrowsedDir;
+  if (!defaultDir && currentFilePath) {
+    defaultDir = path.dirname(currentFilePath);
+  }
+  if (!defaultDir) {
+    const appSupport = path.join(app.getPath('home'), 'Library', 'Application Support');
+    defaultDir = fs.existsSync(appSupport) ? appSupport : app.getPath('home');
+  }
 
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Open Save File',
@@ -126,6 +192,10 @@ ipcMain.handle('open-file-dialog', async () => {
     return { success: false, canceled: true };
   }
 
+  // Remember this directory for next time (persists across sessions)
+  lastBrowsedDir = path.dirname(result.filePaths[0]);
+  saveSettings();
+
   return { success: true, filePath: result.filePaths[0] };
 });
 
@@ -136,9 +206,10 @@ ipcMain.handle('parse-file', async (event, filePath) => {
     currentFileBuffer = buffer;
     currentFilePath = filePath;
     currentFileName = path.basename(filePath);
+    lastBrowsedDir = path.dirname(filePath);
+    saveSettings();
 
-    const parser = new UnitySaveParser(buffer);
-    const result = parser.parse();
+    const result = parseBuffer(buffer);
     delete result.raw;
 
     currentItemCount = result.items.length;
@@ -166,8 +237,7 @@ ipcMain.handle('parse-buffer', async (event, { arrayBuffer, fileName }) => {
     currentFilePath = null; // no path available from drag-and-drop
     currentFileName = fileName;
 
-    const parser = new UnitySaveParser(buffer);
-    const result = parser.parse();
+    const result = parseBuffer(buffer);
     delete result.raw;
 
     currentItemCount = result.items.length;
@@ -217,21 +287,31 @@ ipcMain.handle('save-file', async (event, { modifications }) => {
       fs.copyFileSync(savePath, backupPath);
     }
 
-    // Apply modifications to a copy of the buffer
-    const modified = Buffer.from(currentFileBuffer);
+    // Apply modifications based on format
+    let outputData;
 
-    for (const mod of modifications) {
-      if (mod.type === 'double' || mod.type === 'item') {
-        modified.writeDoubleLE(mod.newValue, mod.offset);
-      } else if (mod.type === 'mantissa_exponent') {
-        modified.writeDoubleLE(mod.newMantissa, mod.mantissaOffset);
-        modified.writeBigInt64LE(BigInt(mod.newExponent), mod.exponentOffset);
-      } else if (mod.type === 'uint32') {
-        modified.writeUInt32LE(mod.newValue >>> 0, mod.offset);
+    if (currentFormat === 'text') {
+      // Text-based saves: apply text replacements
+      const originalText = currentFileBuffer.toString('utf8');
+      const modifiedText = TextSaveParser.applyModifications(originalText, modifications);
+      outputData = Buffer.from(modifiedText, 'utf8');
+    } else {
+      // Binary saves: write bytes directly
+      const modified = Buffer.from(currentFileBuffer);
+      for (const mod of modifications) {
+        if (mod.type === 'double' || mod.type === 'item') {
+          modified.writeDoubleLE(mod.newValue, mod.offset);
+        } else if (mod.type === 'mantissa_exponent') {
+          modified.writeDoubleLE(mod.newMantissa, mod.mantissaOffset);
+          modified.writeBigInt64LE(BigInt(mod.newExponent), mod.exponentOffset);
+        } else if (mod.type === 'uint32') {
+          modified.writeUInt32LE(mod.newValue >>> 0, mod.offset);
+        }
       }
+      outputData = modified;
     }
 
-    fs.writeFileSync(savePath, modified);
+    fs.writeFileSync(savePath, outputData);
 
     // Update recent files with save path
     if (currentFilePath) {

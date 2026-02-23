@@ -502,6 +502,33 @@ input[type="text"]:focus {
   border-color: var(--success) !important;
 }
 
+/* Text format badges */
+.enchantment {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(155, 89, 182, 0.2);
+  color: #bb8fce;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.locked-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.text-muted {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 12px;
+}
+
 .modified-indicator {
   display: inline-block;
   width: 6px;
