@@ -6,7 +6,6 @@ let modifications = new Map();
 
 // DOM Elements
 const dropZone = document.getElementById('drop-zone');
-const fileInput = document.getElementById('file-input');
 const editor = document.getElementById('editor');
 const fileName = document.getElementById('file-name');
 const fileSize = document.getElementById('file-size');
@@ -21,37 +20,195 @@ async function init() {
   setupDragDrop();
   setupTabs();
   setupButtons();
+  await loadRecentFiles();
+}
+
+// Load and display recent files on the drop screen
+async function loadRecentFiles() {
+  const recents = await window.api.loadRecents();
+  const recentFilesDiv = document.getElementById('recent-files');
+  const recentList = document.getElementById('recent-list');
+
+  if (!recents || recents.length === 0) {
+    recentFilesDiv.classList.add('hidden');
+    return;
+  }
+
+  recentFilesDiv.classList.remove('hidden');
+  recentList.innerHTML = '';
+
+  for (const entry of recents) {
+    const item = document.createElement('div');
+    item.className = 'recent-item';
+
+    const timeAgo = getTimeAgo(entry.lastOpened);
+
+    const sizeStr = entry.fileSize ? formatBytes(entry.fileSize) : '';
+
+    item.innerHTML = `
+      <div class="recent-item-info">
+        <span class="recent-item-name">${escapeHtml(entry.name)}${sizeStr ? ` <span class="recent-item-size">${sizeStr}</span>` : ''}</span>
+        <span class="recent-item-path">${escapeHtml(entry.dir)}</span>
+      </div>
+      <div class="recent-item-actions">
+        <div class="recent-item-meta">
+          <span class="recent-item-items">${entry.itemCount} items</span>
+          <span class="recent-item-date">${timeAgo}</span>
+        </div>
+        <button class="recent-remove-btn" title="Remove from recents">&times;</button>
+      </div>
+    `;
+
+    // Click row to open file
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.recent-remove-btn')) return;
+      e.stopPropagation();
+      loadFileFromPath(entry.path);
+    });
+
+    // Click X to remove from recents
+    item.querySelector('.recent-remove-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.api.removeRecent(entry.path);
+      await loadRecentFiles();
+    });
+
+    recentList.appendChild(item);
+  }
+
+  // Clear All button
+  const clearAllBtn = document.createElement('button');
+  clearAllBtn.className = 'recent-clear-all';
+  clearAllBtn.textContent = 'Clear All';
+  clearAllBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await window.api.clearRecents();
+    await loadRecentFiles();
+  });
+  recentList.appendChild(clearAllBtn);
+}
+
+// Load a file directly from a path (used by recent files)
+async function loadFileFromPath(filePath) {
+  try {
+    const result = await window.api.parseFile(filePath);
+
+    if (!result.success) {
+      showToast('Error: ' + result.error, true);
+      return;
+    }
+
+    currentFile = result.fileInfo;
+    parsedData = result.data;
+    modifications.clear();
+
+    fileName.textContent = currentFile.name;
+    fileSize.textContent = formatBytes(currentFile.size);
+    document.getElementById('items-count').textContent = parsedData.items.length;
+    document.getElementById('currencies-count').textContent = parsedData.currencies.length;
+    document.getElementById('fields-count').textContent = parsedData.fields.length;
+
+    renderItems();
+    renderCurrencies();
+    renderFields();
+
+    dropZone.classList.add('hidden');
+    editor.classList.remove('hidden');
+
+    showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies`);
+  } catch (err) {
+    showToast('Error: ' + err.message, true);
+    console.error(err);
+  }
+}
+
+function getTimeAgo(isoDate) {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(isoDate).toLocaleDateString();
 }
 
 // Drag and Drop
 function setupDragDrop() {
-  // Prevent default drag behaviors on the whole window
-  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    document.body.addEventListener(eventName, (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
+  // Prevent default on dragover/dragenter to allow drops (must not stopPropagation)
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('dragenter', (e) => e.preventDefault());
+
+  dropZone.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
   });
 
-  dropZone.addEventListener('dragenter', () => dropZone.classList.add('dragover'));
-  dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 
-  dropZone.addEventListener('drop', (e) => {
+  // Handle the drop on the entire document
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
     dropZone.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      loadFile(files[0]);
+
+    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    // file.path is undefined in Electron 40+, so read bytes with FileReader
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await window.api.parseBuffer({
+        arrayBuffer: arrayBuffer,
+        fileName: file.name
+      });
+
+      if (!result.success) {
+        showToast('Error parsing file: ' + result.error, true);
+        return;
+      }
+
+      currentFile = result.fileInfo;
+      parsedData = result.data;
+      modifications.clear();
+
+      fileName.textContent = currentFile.name;
+      fileSize.textContent = formatBytes(currentFile.size);
+      document.getElementById('items-count').textContent = parsedData.items.length;
+      document.getElementById('currencies-count').textContent = parsedData.currencies.length;
+      document.getElementById('fields-count').textContent = parsedData.fields.length;
+
+      renderItems();
+      renderCurrencies();
+      renderFields();
+
+      dropZone.classList.add('hidden');
+      editor.classList.remove('hidden');
+
+      showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies`);
+    } catch (err) {
+      showToast('Error: ' + err.message, true);
+      console.error(err);
     }
   });
 
-  dropZone.addEventListener('click', () => fileInput.click());
+  // Use native file dialog for browsing
+  document.querySelector('.drop-area').addEventListener('click', openFileBrowser);
+}
 
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      loadFile(e.target.files[0]);
-    }
-  });
+// Open native file dialog
+async function openFileBrowser() {
+  const result = await window.api.openFileDialog();
+  if (result.success && result.filePath) {
+    loadFileFromPath(result.filePath);
+  }
 }
 
 // Tabs
@@ -73,44 +230,6 @@ function setupButtons() {
   document.getElementById('btn-bulk-set').addEventListener('click', bulkSetItems);
 }
 
-// Load and parse file
-async function loadFile(file) {
-  try {
-    // Read the file using FileReader since we get a File object from drag/drop
-    const arrayBuffer = await file.arrayBuffer();
-    currentFile = {
-      name: file.name,
-      path: file.path,
-      size: file.size,
-      buffer: arrayBuffer
-    };
-
-    // Parse the file
-    const parser = new UnitySaveParser(Buffer.from(arrayBuffer));
-    parsedData = parser.parse();
-
-    // Update UI
-    fileName.textContent = file.name;
-    fileSize.textContent = formatBytes(file.size);
-    document.getElementById('items-count').textContent = parsedData.items.length;
-    document.getElementById('currencies-count').textContent = parsedData.currencies.length;
-    document.getElementById('fields-count').textContent = parsedData.fields.length;
-
-    // Render tables
-    renderItems();
-    renderCurrencies();
-    renderFields();
-
-    // Show editor
-    dropZone.classList.add('hidden');
-    editor.classList.remove('hidden');
-
-    showToast(`Loaded ${parsedData.items.length} items, ${parsedData.currencies.length} currencies`);
-  } catch (err) {
-    showToast('Error parsing file: ' + err.message, true);
-    console.error(err);
-  }
-}
 
 // Render items table
 function renderItems() {
@@ -143,7 +262,6 @@ function renderItems() {
       </td>
     `;
 
-    // Name input handler
     const nameInput = tr.querySelector('.name-input');
     nameInput.addEventListener('change', async (e) => {
       const id = e.target.dataset.itemId;
@@ -158,23 +276,34 @@ function renderItems() {
       await window.api.saveNames(customNames);
     });
 
-    // Value input handler
     const valueInput = tr.querySelector('.new-value-input');
     valueInput.addEventListener('input', (e) => {
       const offset = parseInt(e.target.dataset.offset);
       const indicator = document.getElementById(`mod-${offset}`);
-      if (e.target.value) {
-        modifications.set(offset, {
-          offset: offset,
-          newValue: parseFloat(e.target.value),
-          section: 'Items',
-          type: 'double'
-        });
-        indicator.classList.add('visible');
-      } else {
+      const rawVal = e.target.value.trim();
+
+      if (!rawVal) {
         modifications.delete(offset);
         indicator.classList.remove('visible');
+        e.target.classList.remove('input-error');
+        return;
       }
+
+      const parsed = parseFloat(rawVal);
+      if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) {
+        e.target.classList.add('input-error');
+        indicator.classList.remove('visible');
+        return;
+      }
+
+      e.target.classList.remove('input-error');
+      modifications.set(offset, {
+        offset: offset,
+        newValue: parsed,
+        section: 'Items',
+        type: 'double'
+      });
+      indicator.classList.add('visible');
     });
 
     itemsBody.appendChild(tr);
@@ -191,59 +320,79 @@ function renderCurrencies() {
       ? formatScientific(currency.mantissa, currency.exponent)
       : formatNumber(currency.value);
 
+    // Friendly currency name
+    const friendlyName = currency.section
+      .replace('CurrencyCoinsV2', 'Coins')
+      .replace('CurrencyPrestigeV2', 'Prestige')
+      .replace('CurrencyPremium', 'Premium');
+
     tr.innerHTML = `
-      <td>${escapeHtml(currency.section)}</td>
-      <td>${escapeHtml(currency.world)}</td>
+      <td>${escapeHtml(friendlyName)}</td>
+      <td>${escapeHtml(currency.world || '-')}</td>
       <td><span class="value-display">${valueStr}</span></td>
-      <td><code>${currency.mantissa !== null ? currency.mantissa.toFixed(6) : '-'}</code></td>
-      <td><code>${currency.exponent !== null ? currency.exponent : '-'}</code></td>
       <td>
         ${currency.type === 'double' ? `
-          <input type="number" class="new-value-input"
+          <input type="text" class="new-value-input currency-input"
                  data-offset="${currency.offset}"
                  data-type="double"
-                 placeholder="${formatNumber(currency.value)}">
+                 placeholder="e.g. 999000000"
+                 title="Enter a whole number like 999000000">
         ` : `
-          <input type="number" class="new-value-input"
+          <input type="text" class="new-value-input currency-input"
                  data-mantissa-offset="${currency.mantissaOffset}"
                  data-exponent-offset="${currency.exponentOffset}"
                  data-type="mantissa_exponent"
-                 placeholder="${valueStr}">
+                 placeholder="e.g. 1e50 or 999000000"
+                 title="Enter a number like 999000000 or scientific like 1e50">
         `}
       </td>
     `;
 
     const valueInput = tr.querySelector('.new-value-input');
-    valueInput.addEventListener('input', (e) => {
+    valueInput.addEventListener('change', (e) => {
+      const rawVal = e.target.value.trim();
+      if (!rawVal) {
+        // Cleared — remove modification
+        const type = e.target.dataset.type;
+        if (type === 'double') {
+          modifications.delete(parseInt(e.target.dataset.offset));
+        } else {
+          modifications.delete(parseInt(e.target.dataset.mantissaOffset));
+        }
+        e.target.classList.remove('input-error', 'input-modified');
+        return;
+      }
+
+      const parsed = parseNumberInput(rawVal);
+      if (parsed === null) {
+        e.target.classList.add('input-error');
+        e.target.classList.remove('input-modified');
+        showToast('Invalid number. Use digits like 999000000 or scientific like 1e50', true);
+        return;
+      }
+
+      e.target.classList.remove('input-error');
+      e.target.classList.add('input-modified');
+
       const type = e.target.dataset.type;
       if (type === 'double') {
         const offset = parseInt(e.target.dataset.offset);
-        if (e.target.value) {
-          modifications.set(offset, {
-            offset: offset,
-            newValue: parseFloat(e.target.value),
-            type: 'double'
-          });
-        } else {
-          modifications.delete(offset);
-        }
+        modifications.set(offset, {
+          offset: offset,
+          newValue: parsed,
+          type: 'double'
+        });
       } else if (type === 'mantissa_exponent') {
         const mantissaOffset = parseInt(e.target.dataset.mantissaOffset);
         const exponentOffset = parseInt(e.target.dataset.exponentOffset);
-        if (e.target.value) {
-          const newVal = parseFloat(e.target.value);
-          // Convert to mantissa/exponent: find the right exponent
-          const { mantissa, exponent } = toMantissaExponent(newVal);
-          modifications.set(mantissaOffset, {
-            mantissaOffset: mantissaOffset,
-            exponentOffset: exponentOffset,
-            newMantissa: mantissa,
-            newExponent: exponent,
-            type: 'mantissa_exponent'
-          });
-        } else {
-          modifications.delete(mantissaOffset);
-        }
+        const { mantissa, exponent } = toMantissaExponent(parsed);
+        modifications.set(mantissaOffset, {
+          mantissaOffset: mantissaOffset,
+          exponentOffset: exponentOffset,
+          newMantissa: mantissa,
+          newExponent: exponent,
+          type: 'mantissa_exponent'
+        });
       }
     });
 
@@ -273,15 +422,29 @@ function renderFields() {
     const valueInput = tr.querySelector('.new-value-input');
     valueInput.addEventListener('input', (e) => {
       const offset = parseInt(e.target.dataset.offset);
-      if (e.target.value) {
-        modifications.set(offset, {
-          offset: offset,
-          newValue: parseInt(e.target.value),
-          type: 'uint32'
-        });
-      } else {
+      const rawVal = e.target.value.trim();
+
+      if (!rawVal) {
         modifications.delete(offset);
+        e.target.classList.remove('input-error');
+        return;
       }
+
+      const parsed = parseInt(rawVal);
+      const validation = validateForType(parsed, 'uint32');
+      if (!validation.valid) {
+        e.target.classList.add('input-error');
+        e.target.title = validation.error;
+        return;
+      }
+
+      e.target.classList.remove('input-error');
+      e.target.title = '';
+      modifications.set(offset, {
+        offset: offset,
+        newValue: validation.value,
+        type: 'uint32'
+      });
     });
 
     fieldsBody.appendChild(tr);
@@ -305,37 +468,29 @@ function bulkSetItems() {
   showToast(`Set ${inputs.length} items to ${formatNumber(value)}`);
 }
 
-// Save modified file
+// Save modified file — send modifications to main process
 async function saveFile() {
   if (!currentFile || modifications.size === 0) {
     showToast('No changes to save', true);
     return;
   }
 
-  const buffer = new Uint8Array(currentFile.buffer.slice(0));
-  const view = new DataView(buffer.buffer);
-
-  for (const [key, mod] of modifications) {
-    if (mod.type === 'double' || mod.section === 'Items') {
-      view.setFloat64(mod.offset, mod.newValue, true);
-    } else if (mod.type === 'mantissa_exponent') {
-      view.setFloat64(mod.mantissaOffset, mod.newMantissa, true);
-      // Write exponent as int64 LE
-      const expBuf = new ArrayBuffer(8);
-      const expView = new DataView(expBuf);
-      expView.setBigInt64(0, BigInt(mod.newExponent), true);
-      new Uint8Array(buffer.buffer).set(new Uint8Array(expBuf), mod.exponentOffset);
-    } else if (mod.type === 'uint32') {
-      view.setUint32(mod.offset, mod.newValue, true);
-    }
-  }
-
-  const result = await window.api.saveFile({
-    originalPath: currentFile.path,
-    data: buffer.buffer
-  });
+  const modsArray = Array.from(modifications.values());
+  const result = await window.api.saveFile({ modifications: modsArray });
 
   if (result.success) {
+    // Clear all modification tracking
+    modifications.clear();
+
+    // Clear red dots on items
+    document.querySelectorAll('.modified-indicator').forEach(el => el.classList.remove('visible'));
+
+    // Clear input values and styling on all tabs
+    document.querySelectorAll('.new-value-input').forEach(input => {
+      input.value = '';
+      input.classList.remove('input-error', 'input-modified');
+    });
+
     showToast(`Saved to ${result.filePath}`);
   } else if (!result.canceled) {
     showToast('Error saving: ' + result.error, true);
@@ -343,19 +498,81 @@ async function saveFile() {
 }
 
 // Reset to drop zone
-function resetEditor() {
+async function resetEditor() {
   currentFile = null;
   parsedData = null;
   modifications.clear();
   editor.classList.add('hidden');
   dropZone.classList.remove('hidden');
-  fileInput.value = '';
+  await loadRecentFiles();
+}
+
+// Parse user number input — supports plain numbers, commas, scientific notation
+function parseNumberInput(str) {
+  if (!str || !str.trim()) return null;
+  str = str.trim().replace(/,/g, ''); // strip commas
+
+  // Scientific notation like 1e50, 1.5e10, 1E6
+  if (/^-?\d+(\.\d+)?[eE]\d+$/.test(str)) {
+    const val = Number(str);
+    return isFinite(val) ? val : null;
+  }
+
+  // Plain number (int or decimal)
+  if (/^-?\d+(\.\d+)?$/.test(str)) {
+    const val = Number(str);
+    return isFinite(val) ? val : null;
+  }
+
+  return null; // invalid
+}
+
+// Validate and clamp for specific field types
+function validateForType(value, type) {
+  if (type === 'uint32') {
+    value = Math.floor(value);
+    if (value < 0) return { valid: false, error: 'Must be 0 or positive' };
+    if (value > 4294967295) return { valid: false, error: 'Max is 4,294,967,295 for this field' };
+    return { valid: true, value };
+  }
+  if (type === 'double' || type === 'item') {
+    if (!isFinite(value)) return { valid: false, error: 'Number too large' };
+    return { valid: true, value };
+  }
+  return { valid: true, value };
 }
 
 // Utilities
 function formatNumber(n) {
-  if (Math.abs(n) >= 1e15) return n.toExponential(2);
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  // For very large numbers, show both friendly and scientific
+  if (abs >= 1e15) {
+    const sci = n.toExponential(2);
+    // Try to show a friendly suffix too
+    if (abs >= 1e60) return sci;
+    if (abs >= 1e18) return `${sci} (${friendlyBigNumber(n)})`;
+    return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function friendlyBigNumber(n) {
+  const suffixes = [
+    { val: 1e57, name: 'Octodecillion' }, { val: 1e54, name: 'Septendecillion' },
+    { val: 1e51, name: 'Sexdecillion' }, { val: 1e48, name: 'Quindecillion' },
+    { val: 1e45, name: 'Quattuordecillion' }, { val: 1e42, name: 'Tredecillion' },
+    { val: 1e39, name: 'Duodecillion' }, { val: 1e36, name: 'Undecillion' },
+    { val: 1e33, name: 'Decillion' }, { val: 1e30, name: 'Nonillion' },
+    { val: 1e27, name: 'Octillion' }, { val: 1e24, name: 'Septillion' },
+    { val: 1e21, name: 'Sextillion' }, { val: 1e18, name: 'Quintillion' },
+  ];
+  for (const s of suffixes) {
+    if (Math.abs(n) >= s.val) {
+      return (n / s.val).toFixed(1) + ' ' + s.name;
+    }
+  }
+  return n.toExponential(2);
 }
 
 function formatBytes(bytes) {
@@ -388,87 +605,6 @@ function showToast(message, isError = false) {
   toast.className = 'toast' + (isError ? ' error' : '');
   setTimeout(() => toast.classList.add('hidden'), 3000);
 }
-
-// Buffer polyfill for renderer
-class Buffer {
-  constructor(data) {
-    if (data instanceof ArrayBuffer) {
-      this._data = new Uint8Array(data);
-    } else if (data instanceof Uint8Array) {
-      this._data = data;
-    } else {
-      this._data = new Uint8Array(data);
-    }
-    this._view = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
-    this.length = this._data.length;
-    this.byteLength = this._data.byteLength;
-  }
-
-  static from(data) {
-    return new Buffer(data);
-  }
-
-  readDoubleLE(offset) {
-    return this._view.getFloat64(offset, true);
-  }
-
-  readUInt32LE(offset) {
-    return this._view.getUint32(offset, true);
-  }
-
-  readBigInt64LE(offset) {
-    return this._view.getBigInt64(offset, true);
-  }
-
-  indexOf(pattern, fromIndex = 0) {
-    if (typeof pattern === 'string') {
-      pattern = new TextEncoder().encode(pattern);
-    } else if (pattern instanceof Buffer) {
-      pattern = pattern._data;
-    }
-
-    for (let i = fromIndex; i <= this.length - pattern.length; i++) {
-      let found = true;
-      for (let j = 0; j < pattern.length; j++) {
-        if (this._data[i + j] !== pattern[j]) {
-          found = false;
-          break;
-        }
-      }
-      if (found) return i;
-    }
-    return -1;
-  }
-
-  slice(start, end) {
-    return new Buffer(this._data.slice(start, end));
-  }
-
-  toString(encoding) {
-    const slice = this._data;
-    return new TextDecoder().decode(slice);
-  }
-
-  // Array-like access
-  get [Symbol.toPrimitive]() {
-    return this._data;
-  }
-}
-
-// Make Buffer indexable
-Buffer = new Proxy(Buffer, {
-  construct(target, args) {
-    const instance = new target(...args);
-    return new Proxy(instance, {
-      get(obj, prop) {
-        if (typeof prop === 'string' && !isNaN(prop)) {
-          return obj._data[parseInt(prop)];
-        }
-        return obj[prop];
-      }
-    });
-  }
-});
 
 // Initialize
 init();

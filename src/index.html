@@ -12,12 +12,17 @@
 
   <!-- Drop Zone (shown when no file loaded) -->
   <div id="drop-zone" class="drop-zone">
-    <div class="drop-content">
-      <div class="drop-icon">📂</div>
-      <h2>Drop a .dat save file here</h2>
-      <p>Or click to browse</p>
+    <div class="drop-area">
+      <div class="drop-content">
+        <div class="drop-icon">📂</div>
+        <h2>Drop a .dat save file here</h2>
+        <p>Or click to browse</p>
+      </div>
     </div>
-    <input type="file" id="file-input" accept=".dat" hidden>
+    <div id="recent-files" class="recent-files hidden">
+      <h3>Recent Files</h3>
+      <div id="recent-list" class="recent-list"></div>
+    </div>
   </div>
 
   <!-- Editor (shown when file loaded) -->
@@ -71,11 +76,9 @@
         <table id="currencies-table">
           <thead>
             <tr>
-              <th>Section</th>
+              <th>Currency</th>
               <th>World</th>
-              <th>Value</th>
-              <th>Mantissa</th>
-              <th>Exponent</th>
+              <th>Current Value</th>
               <th>New Value</th>
             </tr>
           </thead>
@@ -105,7 +108,6 @@
   <!-- Toast notification -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="parser.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
