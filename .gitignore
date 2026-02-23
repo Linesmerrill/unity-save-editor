@@ -1,5 +1,26 @@
+# Dependencies
 node_modules/
+package-lock.json
+
+# Build output
 dist/
 build/output/
+out/
 *.dmg
+*.app
+*.zip
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Electron
+*.asar
