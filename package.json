@@ -1,0 +1,31 @@
+{
+  "name": "unity-save-editor",
+  "version": "1.0.0",
+  "description": "Drag-and-drop editor for Unity .dat save files",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac",
+    "dist:dmg": "electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "com.unitysaveeditor.app",
+    "productName": "Unity Save Editor",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg"]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*"
+    ]
+  },
+  "keywords": ["unity", "save", "editor", "game"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^40.6.0",
+    "electron-builder": "^26.8.1"
+  }
+}

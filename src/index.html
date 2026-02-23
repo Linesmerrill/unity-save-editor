@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unity Save Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Drag region for title bar -->
+  <div class="titlebar">Unity Save Editor</div>
+
+  <!-- Drop Zone (shown when no file loaded) -->
+  <div id="drop-zone" class="drop-zone">
+    <div class="drop-content">
+      <div class="drop-icon">📂</div>
+      <h2>Drop a .dat save file here</h2>
+      <p>Or click to browse</p>
+    </div>
+    <input type="file" id="file-input" accept=".dat" hidden>
+  </div>
+
+  <!-- Editor (shown when file loaded) -->
+  <div id="editor" class="editor hidden">
+    <!-- Top bar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <span class="file-name" id="file-name"></span>
+        <span class="file-size" id="file-size"></span>
+      </div>
+      <div class="toolbar-right">
+        <button id="btn-new" class="btn btn-secondary" title="Load a different file">New File</button>
+        <button id="btn-save" class="btn btn-primary">Save Modified File</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="items">Items <span id="items-count" class="badge">0</span></button>
+      <button class="tab" data-tab="currencies">Currencies <span id="currencies-count" class="badge">0</span></button>
+      <button class="tab" data-tab="fields">Fields <span id="fields-count" class="badge">0</span></button>
+    </div>
+
+    <!-- Items Tab -->
+    <div id="tab-items" class="tab-content active">
+      <div class="tab-toolbar">
+        <div class="bulk-edit">
+          <label>Set all items to:</label>
+          <input type="number" id="bulk-value" placeholder="e.g. 999000000">
+          <button id="btn-bulk-set" class="btn btn-accent">Apply to All</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="items-table">
+          <thead>
+            <tr>
+              <th class="col-id">Item ID</th>
+              <th class="col-name">Custom Name</th>
+              <th class="col-value">Current Value</th>
+              <th class="col-new">New Value</th>
+            </tr>
+          </thead>
+          <tbody id="items-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Currencies Tab -->
+    <div id="tab-currencies" class="tab-content">
+      <div class="table-wrapper">
+        <table id="currencies-table">
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>World</th>
+              <th>Value</th>
+              <th>Mantissa</th>
+              <th>Exponent</th>
+              <th>New Value</th>
+            </tr>
+          </thead>
+          <tbody id="currencies-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Fields Tab -->
+    <div id="tab-fields" class="tab-content">
+      <div class="table-wrapper">
+        <table id="fields-table">
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>World</th>
+              <th>Current Value</th>
+              <th>New Value</th>
+            </tr>
+          </thead>
+          <tbody id="fields-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="parser.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
